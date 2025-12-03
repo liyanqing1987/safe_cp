@@ -5,7 +5,7 @@
 # Author      : liyanqing.1987
 # Created On  : 2025-11-04 17:30:01
 # Description : Safe "cp" script to replace linux "cp" command.
-# Version     : V1.0 (2025-11-07)
+# Version     : V1.0 (2025-12-03)
 ################################
 import os
 import re
@@ -317,6 +317,8 @@ class SafeCp():
         """
         Copy cp_source to cp_dest with python function shutil.copy and shutil.copytree().
         """
+        cp_source = os.path.normpath(cp_source)
+
         if not os.path.exists(cp_source):
             print(f"cp: cannot stat '{cp_source}': No such file or directory")
         else:
