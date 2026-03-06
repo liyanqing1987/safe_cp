@@ -5,7 +5,7 @@
 # Author      : liyanqing.1987
 # Created On  : 2025-11-04 17:30:01
 # Description : Safe "cp" script to replace linux "cp" command.
-# Version     : V1.0 (2025-12-03)
+# Version     : V1.0 (2025-12-23)
 ################################
 import os
 import re
@@ -55,7 +55,7 @@ class SafeCp():
     """
     Build safe "cp" class with protection/log/alarm machanism.
     -----------
-    Protection: Prevent paths in self.protected_path_list from being copied.
+    Protection: Prevent paths in self.protected_path_list (but not in self.excluded_path_list) from being copied.
     Log: Save logs for all copy operations.
     Alarm: Alarm for copy operation to protected data.
     -----------
@@ -70,6 +70,16 @@ class SafeCp():
             self.protected_path_list = self.extend_list_with_config(self.protected_path_list, ['/etc/safe_cp.protected'])
 
         debug_print('[CONFIG] protected_path_list : ' + str(self.protected_path_list), debug_level_list=[3, ])
+
+        # [Editable] self.excluded_path_list : specify excluded paths (absolute path), globally effective.
+        self.excluded_path_list = []
+
+        if 'HOME' in os.environ:
+            self.excluded_path_list = self.extend_list_with_config(self.excluded_path_list, ['/etc/safe_cp.excluded', str(os.environ['HOME']) + '/.config/safe_cp.excluded'])
+        else:
+            self.excluded_path_list = self.extend_list_with_config(self.excluded_path_list, ['/etc/safe_cp.excluded'])
+
+        debug_print('[CONFIG] excluded_path_list : ' + str(self.excluded_path_list), debug_level_list=[3, ])
 
         # [Editable] self.log_mode : enable the behavior of saving logs.
         # [Editable] self.log_ignore_user_list : specify a user list, will not save logs fro copy operations of users in the list.
@@ -92,7 +102,7 @@ class SafeCp():
         debug_print('[CONFIG] alarm_command : ' + str(self.alarm_command), debug_level_list=[3, ])
 
         # [Editable] self.system_cp : specify system cp.
-        self.system_cp = '/usr/bin/systemd-cp'
+        self.system_cp = ''
 
         if not self.system_cp:
             self.get_system_cp()
@@ -276,6 +286,10 @@ class SafeCp():
 
             for protected_path in self.protected_path_list:
                 if re.match(r'^' + str(absolute_copy_path) + '(/.*)?$', protected_path) or re.match(r'^' + str(protected_path) + '(/.*)?$', absolute_copy_path):
+                    for excluded_path in self.excluded_path_list:
+                        if re.match(r'^' + str(excluded_path) + '(/.*)?$', absolute_copy_path):
+                            return False
+
                     if absolute_copy_path == protected_path:
                         print_warning('*Warning*: Cannot copy protected path "' + str(copy_path) + '", skip!')
                         self.save_log('*Warning*: Cannot copy protected path "' + str(copy_path) + '", skip!', message_level='Warning')
@@ -334,7 +348,7 @@ class SafeCp():
                     print(f'cp: failed on copying "{cp_source}": {err}')
             elif os.path.isdir(cp_source):
                 try:
-                    shutil.copytree(cp_source, cp_dest, dirs_exist_ok=True)
+                    shutil.copytree(cp_source, cp_dest, dirs_exist_ok=True, symlinks=True)
                 except PermissionError:
                     print(f'cp: cannot copy "{cp_source}": Permission denied')
                 except Exception as err:
