@@ -5,7 +5,7 @@
 # Author      : liyanqing.1987
 # Created On  : 2025-11-04 17:30:01
 # Description : Safe "cp" script to replace linux "cp" command.
-# Version     : V1.0 (2025-12-23)
+# Version     : V1.1 (2026-03-06)
 ################################
 import os
 import re
@@ -41,14 +41,14 @@ def debug_print(message, debug_level_list=[1, ]):
     [export SAFE_CP_DEBUG=3] : show configuration.
     """
     if ('SAFE_CP_DEBUG' in os.environ) and re.match(r'^[123]$', os.environ['SAFE_CP_DEBUG']) and (int(os.environ['SAFE_CP_DEBUG']) in debug_level_list):
-        print('\033[1;34m' + str(message) + '\033[0m')
+        print(f'\033[1;34m{message}\033[0m')
 
 
 def print_warning(message):
     """
     Print specified message with yellow color.
     """
-    print('\033[1;33m' + str(message) + '\033[0m')
+    print(f'\033[1;33m{message}\033[0m')
 
 
 class SafeCp():
@@ -69,7 +69,7 @@ class SafeCp():
         else:
             self.protected_path_list = self.extend_list_with_config(self.protected_path_list, ['/etc/safe_cp.protected'])
 
-        debug_print('[CONFIG] protected_path_list : ' + str(self.protected_path_list), debug_level_list=[3, ])
+        debug_print(f'[CONFIG] protected_path_list : {self.protected_path_list}', debug_level_list=[3, ])
 
         # [Editable] self.excluded_path_list : specify excluded paths (absolute path), globally effective.
         self.excluded_path_list = []
@@ -79,7 +79,7 @@ class SafeCp():
         else:
             self.excluded_path_list = self.extend_list_with_config(self.excluded_path_list, ['/etc/safe_cp.excluded'])
 
-        debug_print('[CONFIG] excluded_path_list : ' + str(self.excluded_path_list), debug_level_list=[3, ])
+        debug_print(f'[CONFIG] excluded_path_list : {self.excluded_path_list}', debug_level_list=[3, ])
 
         # [Editable] self.log_mode : enable the behavior of saving logs.
         # [Editable] self.log_ignore_user_list : specify a user list, will not save logs fro copy operations of users in the list.
@@ -93,13 +93,13 @@ class SafeCp():
                 if not os.path.exists(log_dir):
                     self.create_dir(log_dir, permission=0o1777)
 
-        debug_print('[CONFIG] log_dir(s) : ' + str(self.log_dir_list), debug_level_list=[3, ])
+        debug_print(f'[CONFIG] log_dir(s) : {self.log_dir_list}', debug_level_list=[3, ])
 
         # [Editable] self.alarm_command : specify alarm command. ("<TITAL>", "<MESSAGE>" and "<USER>" are replaceable string.")
         # [Editable] self.alarm_ignore_user_list : specify a user list, no alarms will be sent fro copy operations of users in the list.
         self.alarm_command = ''
         self.alarm_ignore_user_list = []
-        debug_print('[CONFIG] alarm_command : ' + str(self.alarm_command), debug_level_list=[3, ])
+        debug_print(f'[CONFIG] alarm_command : {self.alarm_command}', debug_level_list=[3, ])
 
         # [Editable] self.system_cp : specify system cp.
         self.system_cp = ''
@@ -107,34 +107,41 @@ class SafeCp():
         if not self.system_cp:
             self.get_system_cp()
 
-        debug_print('[CONFIG] system_cp : ' + str(self.system_cp), debug_level_list=[3, ])
+        debug_print(f'[CONFIG] system_cp : {self.system_cp}', debug_level_list=[3, ])
 
         if not self.system_cp:
             debug_print('[WARNING] No system cp is specified.', debug_level_list=[1, 2, 3])
         elif not os.path.exists(self.system_cp):
-            debug_print('[WARNING] Specified system cp "' + str(self.system_cp) + '" is missing.', debug_level_list=[1, 2, 3])
+            debug_print(f'[WARNING] Specified system cp "{self.system_cp}" is missing.', debug_level_list=[1, 2, 3])
 
-    def run_command(self, command, mystdin=subprocess.PIPE, mystdout=subprocess.PIPE, mystderr=subprocess.PIPE, show=False):
+    def run_command(self, command, mystdin=subprocess.PIPE, mystdout=subprocess.PIPE, mystderr=subprocess.PIPE, show=False, interactive=False):
         """
         Run system command with subprocess.Popen, get returncode/stdout/stderr.
         """
-        SP = subprocess.Popen(command, shell=True, stdin=mystdin, stdout=mystdout, stderr=mystderr)
-        (stdout, stderr) = SP.communicate()
-        stdout = str(stdout, 'utf-8').strip()
-        stderr = str(stderr, 'utf-8').strip()
+        if interactive:
+            # For interactive commands, use system's stdin/stdout/stderr
+            SP = subprocess.Popen(command, shell=True)
+            SP.wait()
+            return (SP.returncode, "", "")
+        else:
+            # For non-interactive commands, use PIPE
+            SP = subprocess.Popen(command, shell=True, stdin=mystdin, stdout=mystdout, stderr=mystderr)
+            (stdout, stderr) = SP.communicate()
+            stdout = str(stdout, 'utf-8').strip()
+            stderr = str(stderr, 'utf-8').strip()
 
-        if self.system_cp and os.path.exists(self.system_cp):
-            stdout = re.sub(self.system_cp, CURRENT_SCRIPT, stdout)
-            stderr = re.sub(self.system_cp, CURRENT_SCRIPT, stderr)
+            if self.system_cp and os.path.exists(self.system_cp):
+                stdout = re.sub(self.system_cp, CURRENT_SCRIPT, stdout)
+                stderr = re.sub(self.system_cp, CURRENT_SCRIPT, stderr)
 
-        if show:
-            if stdout:
-                print(stdout)
+            if show:
+                if stdout:
+                    print(stdout)
 
-            if stderr:
-                print(stderr)
+                if stderr:
+                    print(stderr)
 
-        return (SP.returncode, stdout, stderr)
+            return (SP.returncode, stdout, stderr)
 
     def extend_list_with_config(self, path_list, config_file_list, check_exists=True):
         """
@@ -149,7 +156,7 @@ class SafeCp():
                             if (not re.match(r'^\s*$', line)) and (not re.match(r'^\s*#.*$', line)):
                                 path_list.append(line)
                 except Exception:
-                    debug_print('[WARNING] Failed on opening config file ' + str(config_file) + ' for read.', debug_level_list=[1, 2, 3])
+                    debug_print(f'[WARNING] Failed on opening config file {config_file} for read.', debug_level_list=[1, 2, 3])
 
         # Process for "~" and "*".
         copy_path_list = copy.deepcopy(path_list)
@@ -186,12 +193,12 @@ class SafeCp():
         """
         if (not os.path.exists(dir_path)) or (not os.path.isdir(dir_path)):
             try:
-                debug_print('[COMMAND] mkdir ' + str(dir_path), debug_level_list=[2, 3])
+                debug_print(f'[COMMAND] mkdir {dir_path}', debug_level_list=[2, 3])
                 os.makedirs(dir_path)
-                debug_print('[COMMAND] chmod ' + oct(permission)[2:] + ' ' + str(dir_path), debug_level_list=[2, 3])
+                debug_print(f'[COMMAND] chmod {oct(permission)[2:]} {dir_path}', debug_level_list=[2, 3])
                 os.chmod(dir_path, permission)
             except Exception:
-                debug_print('[WARNING] Failed on creating directory ' + str(dir_path) + ' with permission "' + oct(permission)[2:] + '".', debug_level_list=[1, 2, 3])
+                debug_print(f'[WARNING] Failed on creating directory {dir_path} with permission "' + oct(permission)[2:] + '".', debug_level_list=[1, 2, 3])
 
     def get_system_cp(self):
         """
@@ -211,6 +218,20 @@ class SafeCp():
                     self.system_cp = real_system_cp
                     break
 
+    def check_cp_option_support(self, option):
+        """
+        Check if system cp supports a specific option.
+        """
+        if not self.system_cp or not os.path.exists(self.system_cp):
+            return False
+
+        # Test if the option is supported
+        command = f"{self.system_cp} {option} --help 2>&1 | grep -E '({option}|usage:)'"
+        (return_code, stdout, stderr) = self.run_command(command)
+
+        # If the output contains 'usage:', it means the option is not supported
+        return 'usage:' not in stdout
+
     def save_log(self, message, message_level='Info'):
         """
         Save message into user log file.
@@ -226,7 +247,7 @@ class SafeCp():
                         log_dic = {"time": CURRENT_TIME, "message_level": message_level, "user": USER, "login_user": LOGIN_USER, "host": HOSTNAME, "cwd": CWD, "message": message}
                         LF.write(str(json.dumps(log_dic, ensure_ascii=False)) + '\n')
                 except Exception:
-                    debug_print('[WARNING] Failed on saving message into log file "' + str(log_file) + '".', debug_level_list=[1, 2, 3])
+                    debug_print(f'[WARNING] Failed on saving message into log file "{log_file}".', debug_level_list=[1, 2, 3])
 
     def convert_to_raw_string(self, input_string):
         raw_string = ""
@@ -291,14 +312,14 @@ class SafeCp():
                             return False
 
                     if absolute_copy_path == protected_path:
-                        print_warning('*Warning*: Cannot copy protected path "' + str(copy_path) + '", skip!')
-                        self.save_log('*Warning*: Cannot copy protected path "' + str(copy_path) + '", skip!', message_level='Warning')
+                        print_warning(f'*Warning*: Cannot copy protected path "{copy_path}", skip!')
+                        self.save_log(f'*Warning*: Cannot copy protected path "{copy_path}", skip!', message_level='Warning')
                     elif re.match(r'^' + str(absolute_copy_path) + '(/.*)?$', protected_path):
-                        print_warning('*Warning*: Cannot copy path "' + str(copy_path) + '", there is protected data under it, skip!')
-                        self.save_log('*Warning*: Cannot copy path "' + str(copy_path) + '", there is protected data under it, skip!', message_level='Warning')
+                        print_warning(f'*Warning*: Cannot copy path "{copy_path}", there is protected data under it, skip!')
+                        self.save_log(f'*Warning*: Cannot copy path "{copy_path}", there is protected data under it, skip!', message_level='Warning')
                     elif re.match(r'^' + str(protected_path) + '(/.*)?$', absolute_copy_path):
-                        print_warning('*Warning*: Cannot copy path "' + str(copy_path) + '", it is located under a protected path, skip!')
-                        self.save_log('*Warning*: Cannot copy path "' + str(copy_path) + '", it is located under a protected path, skip!', message_level='Warning')
+                        print_warning(f'*Warning*: Cannot copy path "{copy_path}", it is located under a protected path, skip!')
+                        self.save_log(f'*Warning*: Cannot copy path "{copy_path}", it is located under a protected path, skip!', message_level='Warning')
 
                     if USER == LOGIN_USER:
                         self.send_alarm(message='Time: ' + str(CURRENT_TIME) + '\n User: ' + str(USER) + '\n Host: ' + str(HOSTNAME) + '\n Cwd: ' + str(CWD) + '\n Command: ' + str(command) + '  (skip)')
@@ -323,11 +344,11 @@ class SafeCp():
             if user:
                 alarm_command = re.sub(r'<USER>', user, self.alarm_command)
 
-            debug_print('[COMMAND] ' + str(alarm_command), debug_level_list=[2, 3])
-            self.save_log('[alarm_command=' + str(alarm_command) + ']', message_level='Info')
+            debug_print(f'[COMMAND] {alarm_command}', debug_level_list=[2, 3])
+            self.save_log(f'[alarm_command={alarm_command}]', message_level='Info')
             subprocess.Popen(alarm_command, shell=True)
 
-    def cp(self, cp_source, cp_dest):
+    def cp(self, cp_source, cp_dest, interactive=False):
         """
         Copy cp_source to cp_dest with python function shutil.copy and shutil.copytree().
         """
@@ -338,6 +359,22 @@ class SafeCp():
         else:
             if os.path.isdir(cp_dest):
                 cp_dest = os.path.join(cp_dest, os.path.basename(cp_source))
+
+            # Handle interactive mode (-i)
+            if interactive and os.path.exists(cp_dest):
+                while True:
+                    try:
+                        response = input(f"cp: overwrite '{cp_dest}'? ")
+
+                        if not response:
+                            response = 'n'
+
+                        if response.lower() in ['y', 'yes']:
+                            break
+                        elif response.lower() in ['n', 'no']:
+                            return
+                    except EOFError:
+                        return
 
             if os.path.isfile(cp_source):
                 try:
@@ -361,12 +398,26 @@ class SafeCp():
         (cp_command, final_cp_command, cp_argument_list, cp_source_list, cp_dest) = self.parse_cp_command()
         self.save_log('[command=' + str(cp_command) + ']', message_level='Info')
 
+        # Check if command requires interactive input
+        interactive = False
+
+        for arg in cp_argument_list:
+            if arg == '-i' or arg == '--interactive' or arg == '-n' or arg == '--no-clobber' or arg == '-b' or '--backup' in arg:
+                interactive = True
+                break
+
+        # Also check if any argument contains interactive-related options
+        for arg in cp_argument_list:
+            if re.search(r'--backup.*', arg) or re.search(r'--no-clobber.*', arg):
+                interactive = True
+                break
+
         if (not cp_argument_list) and (not cp_source_list):
             print("cp: missing file operand\nTry 'cp --help' for more information.")
         elif cp_argument_list and (not cp_source_list):
             if self.system_cp and os.path.exists(self.system_cp):
                 final_cp_command = str(self.system_cp) + ' ' + str(' '.join(cp_argument_list))
-                self.run_command(final_cp_command, show=True)
+                self.run_command(final_cp_command, show=True, interactive=interactive)
         else:
             # Check protection.
             is_protected = False
@@ -377,11 +428,41 @@ class SafeCp():
 
             # Execute copy.
             if not is_protected:
+                # Check for -n (no clobber) parameter
+                no_clobber = False
+
+                for arg in cp_argument_list:
+                    if arg == '-n' or arg == '--no-clobber':
+                        no_clobber = True
+                        break
+
+                # Check for -b (backup) parameter
+                backup = False
+
+                for arg in cp_argument_list:
+                    if arg == '-b' or '--backup' in arg:
+                        backup = True
+                        break
+
+                # Check if system cp supports the options
+                use_system_cp = True
+
                 if self.system_cp and os.path.exists(self.system_cp):
-                    debug_print('[COMMAND] ' + str(final_cp_command), debug_level_list=[2, 3])
-                    self.run_command(final_cp_command, show=True)
+                    # Test if -b is supported if backup is requested
+                    if backup and not self.check_cp_option_support('-b'):
+                        use_system_cp = False
+
+                    # Test if -n is supported if no_clobber is requested
+                    if no_clobber and not self.check_cp_option_support('-n'):
+                        use_system_cp = False
                 else:
-                    debug_print('[COMMAND] cp -rf ' + ' '.join(cp_source_list) + ' ' + str(cp_dest), debug_level_list=[2, 3])
+                    use_system_cp = False
+
+                if use_system_cp:
+                    debug_print(f'[COMMAND] {final_cp_command}', debug_level_list=[2, 3])
+                    self.run_command(final_cp_command, show=True, interactive=interactive)
+                else:
+                    debug_print(f'[COMMAND] cp -rf {" ".join(cp_source_list)} {cp_dest}', debug_level_list=[2, 3])
 
                     if len(cp_source_list) > 1:
                         if not os.path.isdir(cp_dest):
@@ -389,7 +470,31 @@ class SafeCp():
                             return
 
                     for cp_source in cp_source_list:
-                        self.cp(cp_source, cp_dest)
+                        # Handle -n (no clobber) parameter
+                        if no_clobber:
+                            dest_path = cp_dest
+
+                            if os.path.isdir(dest_path):
+                                dest_path = os.path.join(dest_path, os.path.basename(cp_source))
+
+                            if os.path.exists(dest_path):
+                                print(f"cp: '{dest_path}' already exists (no clobber)")
+                                continue
+
+                        # Handle -b (backup) parameter
+                        if backup:
+                            dest_path = cp_dest
+
+                            if os.path.isdir(dest_path):
+                                dest_path = os.path.join(dest_path, os.path.basename(cp_source))
+
+                            if os.path.exists(dest_path):
+                                backup_path = dest_path + '~'
+                                import shutil
+                                shutil.copy2(dest_path, backup_path)
+                                print(f"cp: backed up '{dest_path}' to '{backup_path}'")
+
+                        self.cp(cp_source, cp_dest, interactive=interactive)
 
 
 ################
