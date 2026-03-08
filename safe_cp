@@ -4,7 +4,7 @@
 # File Name   : safe_cp
 # Author      : liyanqing.1987
 # Created On  : 2025-11-04 17:30:01
-# Description : Safe "cp" script to replace linux "cp" command.
+# Description : Safe "cp" script to replace linux system "cp" command.
 # Version     : V1.1 (2026-03-06)
 ################################
 import os
@@ -396,7 +396,7 @@ class SafeCp():
         Main function.
         """
         (cp_command, final_cp_command, cp_argument_list, cp_source_list, cp_dest) = self.parse_cp_command()
-        self.save_log('[command=' + str(cp_command) + ']', message_level='Info')
+        self.save_log(f'[command={cp_command}]', message_level='Info')
 
         # Check if command requires interactive input
         interactive = False
@@ -490,7 +490,6 @@ class SafeCp():
 
                             if os.path.exists(dest_path):
                                 backup_path = dest_path + '~'
-                                import shutil
                                 shutil.copy2(dest_path, backup_path)
                                 print(f"cp: backed up '{dest_path}' to '{backup_path}'")
 
