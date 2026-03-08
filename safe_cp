@@ -5,7 +5,7 @@
 # Author      : liyanqing.1987
 # Created On  : 2025-11-04 17:30:01
 # Description : Safe "cp" script to replace linux system "cp" command.
-# Version     : V1.1 (2026-03-06)
+# Version     : V1.1 (2026-03-07)
 ################################
 import os
 import re
@@ -13,13 +13,13 @@ import sys
 import copy
 import glob
 import json
+import shlex
 import socket
 import shutil
 import datetime
 import subprocess
 
 os.environ['PYTHONUNBUFFERED'] = '1'
-CURRENT_SCRIPT = sys.argv[0]
 CWD = os.getcwd()
 HOSTNAME = socket.gethostname()
 CURRENT_DATE = datetime.datetime.now().strftime('%Y%m%d')
@@ -119,8 +119,10 @@ class SafeCp():
         Run system command with subprocess.Popen, get returncode/stdout/stderr.
         """
         if interactive:
-            # For interactive commands, use system's stdin/stdout/stderr
-            SP = subprocess.Popen(command, shell=True)
+            # For interactive commands, use a simpler approach
+            # Just run the command and let it handle input/output directly
+            # The system cp command will handle both terminal and pipe input
+            SP = subprocess.Popen(command, shell=True, stdin=mystdin)
             SP.wait()
             return (SP.returncode, "", "")
         else:
@@ -131,8 +133,8 @@ class SafeCp():
             stderr = str(stderr, 'utf-8').strip()
 
             if self.system_cp and os.path.exists(self.system_cp):
-                stdout = re.sub(self.system_cp, CURRENT_SCRIPT, stdout)
-                stderr = re.sub(self.system_cp, CURRENT_SCRIPT, stderr)
+                stdout = re.sub(self.system_cp, 'cp', stdout)
+                stderr = re.sub(self.system_cp, 'cp', stderr)
 
             if show:
                 if stdout:
@@ -204,7 +206,7 @@ class SafeCp():
         """
         Get real system cp is self.system_cp is not specified.
         """
-        real_current_script = os.path.realpath(CURRENT_SCRIPT)
+        real_current_script = os.path.realpath(sys.argv[0])
         system_cp_list = ['/usr/bin/system_cp', '/usr/bin/cp', '/bin/system_cp', '/bin/cp']
 
         for system_cp in system_cp_list:
@@ -265,7 +267,6 @@ class SafeCp():
         Get arguments and paths from cp command.
         """
         cp_command = ' '.join(sys.argv)
-        final_cp_command = self.system_cp
         cp_argument_list = []
         cp_source_list = []
         cp_dest = ''
@@ -274,9 +275,6 @@ class SafeCp():
             # Process arg.
             if self.system_cp and os.path.exists(self.system_cp):
                 arg = self.convert_to_raw_string(arg)
-
-            # Splicing final_cp_command.
-            final_cp_command = str(final_cp_command) + ' ' + str(arg)
 
             # Get cp_argument_list/cp_source_list/cp_dest.
             if re.match(r'^-.+$', arg):
@@ -296,7 +294,7 @@ class SafeCp():
                     else:
                         cp_source_list.append(arg)
 
-        return cp_command, final_cp_command, cp_argument_list, cp_source_list, cp_dest
+        return cp_command, cp_argument_list, cp_source_list, cp_dest
 
     def check_protection(self, copy_path, command):
         """
@@ -391,20 +389,23 @@ class SafeCp():
                 except Exception as err:
                     print(f'cp: failed on copying "{cp_source}": {err}')
 
-    def run(self):
+    def check_arguments(self, cp_argument_list):
         """
-        Main function.
+        Check command arguments and return parameter flags.
         """
-        (cp_command, final_cp_command, cp_argument_list, cp_source_list, cp_dest) = self.parse_cp_command()
-        self.save_log(f'[command={cp_command}]', message_level='Info')
-
-        # Check if command requires interactive input
         interactive = False
+        no_clobber = False
+        backup = False
 
         for arg in cp_argument_list:
-            if arg == '-i' or arg == '--interactive' or arg == '-n' or arg == '--no-clobber' or arg == '-b' or '--backup' in arg:
+            if arg == '-i' or arg == '--interactive':
                 interactive = True
-                break
+            elif arg == '-n' or arg == '--no-clobber':
+                no_clobber = True
+                interactive = True
+            elif arg == '-b' or '--backup' in arg:
+                backup = True
+                interactive = True
 
         # Also check if any argument contains interactive-related options
         for arg in cp_argument_list:
@@ -412,12 +413,55 @@ class SafeCp():
                 interactive = True
                 break
 
+        return interactive, no_clobber, backup
+
+    def handle_copy_operation(self, cp_source, cp_dest, no_clobber, backup, interactive):
+        """
+        Handle copy operation with specified parameters.
+        """
+        # Handle -n (no clobber) parameter
+        if no_clobber:
+            dest_path = cp_dest
+
+            if os.path.isdir(dest_path):
+                dest_path = os.path.join(dest_path, os.path.basename(cp_source))
+
+            if os.path.exists(dest_path):
+                print(f"cp: '{dest_path}' already exists (no clobber)")
+                return False
+
+        # Handle -b (backup) parameter
+        if backup:
+            dest_path = cp_dest
+
+            if os.path.isdir(dest_path):
+                dest_path = os.path.join(dest_path, os.path.basename(cp_source))
+
+            if os.path.exists(dest_path):
+                backup_path = dest_path + '~'
+                shutil.copy2(dest_path, backup_path)
+                print(f"cp: backed up '{dest_path}' to '{backup_path}'")
+
+        # Execute copy
+        self.cp(cp_source, cp_dest, interactive=interactive)
+        return True
+
+    def run(self):
+        """
+        Main function.
+        """
+        (cp_command, cp_argument_list, cp_source_list, cp_dest) = self.parse_cp_command()
+        self.save_log(f'[command={cp_command}]', message_level='Info')
+
+        # Check command arguments
+        interactive, no_clobber, backup = self.check_arguments(cp_argument_list)
+
         if (not cp_argument_list) and (not cp_source_list):
             print("cp: missing file operand\nTry 'cp --help' for more information.")
         elif cp_argument_list and (not cp_source_list):
             if self.system_cp and os.path.exists(self.system_cp):
-                final_cp_command = str(self.system_cp) + ' ' + str(' '.join(cp_argument_list))
-                self.run_command(final_cp_command, show=True, interactive=interactive)
+                command = str(self.system_cp) + ' ' + str(' '.join(cp_argument_list))
+                self.run_command(command, show=True, interactive=interactive)
         else:
             # Check protection.
             is_protected = False
@@ -428,22 +472,6 @@ class SafeCp():
 
             # Execute copy.
             if not is_protected:
-                # Check for -n (no clobber) parameter
-                no_clobber = False
-
-                for arg in cp_argument_list:
-                    if arg == '-n' or arg == '--no-clobber':
-                        no_clobber = True
-                        break
-
-                # Check for -b (backup) parameter
-                backup = False
-
-                for arg in cp_argument_list:
-                    if arg == '-b' or '--backup' in arg:
-                        backup = True
-                        break
-
                 # Check if system cp supports the options
                 use_system_cp = True
 
@@ -458,9 +486,22 @@ class SafeCp():
                 else:
                     use_system_cp = False
 
-                if use_system_cp:
-                    debug_print(f'[COMMAND] {final_cp_command}', debug_level_list=[2, 3])
-                    self.run_command(final_cp_command, show=True, interactive=interactive)
+                # If interactive, always use custom cp() function to avoid exposing system cp path
+                if interactive:
+                    debug_print(f'[COMMAND] cp -i {" ".join(cp_source_list)} {cp_dest}', debug_level_list=[2, 3])
+
+                    if len(cp_source_list) > 1:
+                        if not os.path.isdir(cp_dest):
+                            print(f"cp: target '{cp_dest}' is not a directory")
+                            return
+
+                    for cp_source in cp_source_list:
+                        self.handle_copy_operation(cp_source, cp_dest, no_clobber, backup, interactive)
+                elif use_system_cp:
+                    command_parts = [str(self.system_cp)] + sys.argv[1:]
+                    command = ' '.join(shlex.quote(part) for part in command_parts)
+                    debug_print(f'[COMMAND] {command}', debug_level_list=[2, 3])
+                    self.run_command(command, show=True, interactive=interactive)
                 else:
                     debug_print(f'[COMMAND] cp -rf {" ".join(cp_source_list)} {cp_dest}', debug_level_list=[2, 3])
 
@@ -470,30 +511,7 @@ class SafeCp():
                             return
 
                     for cp_source in cp_source_list:
-                        # Handle -n (no clobber) parameter
-                        if no_clobber:
-                            dest_path = cp_dest
-
-                            if os.path.isdir(dest_path):
-                                dest_path = os.path.join(dest_path, os.path.basename(cp_source))
-
-                            if os.path.exists(dest_path):
-                                print(f"cp: '{dest_path}' already exists (no clobber)")
-                                continue
-
-                        # Handle -b (backup) parameter
-                        if backup:
-                            dest_path = cp_dest
-
-                            if os.path.isdir(dest_path):
-                                dest_path = os.path.join(dest_path, os.path.basename(cp_source))
-
-                            if os.path.exists(dest_path):
-                                backup_path = dest_path + '~'
-                                shutil.copy2(dest_path, backup_path)
-                                print(f"cp: backed up '{dest_path}' to '{backup_path}'")
-
-                        self.cp(cp_source, cp_dest, interactive=interactive)
+                        self.handle_copy_operation(cp_source, cp_dest, no_clobber, backup, interactive)
 
 
 ################
