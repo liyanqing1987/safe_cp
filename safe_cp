@@ -5,7 +5,7 @@
 # Author      : liyanqing.1987
 # Created On  : 2025-11-04 17:30:01
 # Description : Safe "cp" script to replace linux system "cp" command.
-# Version     : V1.1 (2026-03-07)
+# Version     : V1.1 (2026-03-10)
 ################################
 import os
 import re
@@ -107,12 +107,10 @@ class SafeCp():
         if not self.system_cp:
             self.get_system_cp()
 
-        debug_print(f'[CONFIG] system_cp : {self.system_cp}', debug_level_list=[3, ])
-
         if not self.system_cp:
             debug_print('[WARNING] No system cp is specified.', debug_level_list=[1, 2, 3])
         elif not os.path.exists(self.system_cp):
-            debug_print(f'[WARNING] Specified system cp "{self.system_cp}" is missing.', debug_level_list=[1, 2, 3])
+            debug_print(f'[WARNING] Specified system cp is missing.', debug_level_list=[1, 2, 3])
 
     def run_command(self, command, mystdin=subprocess.PIPE, mystdout=subprocess.PIPE, mystderr=subprocess.PIPE, show=False, interactive=False):
         """
@@ -498,9 +496,11 @@ class SafeCp():
                     for cp_source in cp_source_list:
                         self.handle_copy_operation(cp_source, cp_dest, no_clobber, backup, interactive)
                 elif use_system_cp:
+                    print_command_parts = ['cp'] + sys.argv[1:]
+                    print_command = ' '.join(shlex.quote(part) for part in print_command_parts)
+                    debug_print(f'[COMMAND] {print_command}', debug_level_list=[2, 3])
                     command_parts = [str(self.system_cp)] + sys.argv[1:]
                     command = ' '.join(shlex.quote(part) for part in command_parts)
-                    debug_print(f'[COMMAND] {command}', debug_level_list=[2, 3])
                     self.run_command(command, show=True, interactive=interactive)
                 else:
                     debug_print(f'[COMMAND] cp -rf {" ".join(cp_source_list)} {cp_dest}', debug_level_list=[2, 3])
